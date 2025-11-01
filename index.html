@@ -254,7 +254,7 @@
          * 3. Send image to Gemini API for extraction
          */
         async function extractDataFromImage(base64ImageData, retryCount = 0) {
-            const apiKey = ""; // API key is handled by the environment
+            const apiKey = "AIzaSyBs1I4ssG1-_-Fc0rgqyzuAHUib2fZ0cdE"; // API key is handled by the environment
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
             const prompt = `Analyze this image of a business card. Extract the following information.
