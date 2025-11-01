@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-gray-900">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Business Card Scanner</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for the app */
+        body, html {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Styling for the video feed to be responsive */
+        #videoFeed {
+            width: 100%;
+            height: auto;
+            border-radius: 0.5rem;
+            transform: scaleX(-1); /* Mirror mode for selfie cam, remove if 'environment' works */
+        }
+        
+        /* Simple loading spinner */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Hidden text area for copy-to-clipboard */
+        #csvHelper {
+            position: absolute;
+            left: -9999px;
+            top: 0;
+            opacity: 0;
+        }
+
+        /* Message box for notifications */
+        #messageBox {
+            transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
+            transform: translateY(-20px);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #messageBox.show {
+            transform: translateY(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+    </style>
+</head>
+<body class="h-full flex items-center justify-center bg-gray-900 text-gray-100 p-4">
+
+    <div class="w-full max-w-lg mx-auto bg-gray-800 rounded-2xl shadow-2xl p-6 md:p-8">
+        <h1 class="text-2xl md:text-3xl font-bold text-center text-white mb-6">AI Business Card Scanner</h1>
+
+        <!-- 1. Start View -->
+        <div id="startView" class="text-center">
+            <p class="mb-6 text-gray-300">Press the button below to start your camera and scan a business card.</p>
+            <button id="startButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-200 shadow-lg">
+                Start Camera
+            </button>
+        </div>
+
+        <!-- 2. Camera View -->
+        <div id="cameraView" class="hidden text-center">
+            <video id="videoFeed" playsinline autoplay muted class="mb-4 bg-gray-700"></video>
+            <button id="captureButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-200 shadow-lg">
+                Capture Card
+            </button>
+            <p class="text-sm text-gray-400 mt-3">Ensure good lighting and hold steady.</p>
+        </div>
+        
+        <!-- Hidden Canvas for capturing image -->
+        <canvas id="canvas" class="hidden"></canvas>
+
+        <!-- 3. Loading View -->
+        <div id="loadingView" class="hidden text-center py-12">
+            <div class="loader mx-auto"></div>
+            <p class="text-lg text-gray-300 mt-4">Analyzing Business Card...</p>
+            <p class="text-sm text-gray-400">This may take a moment.</p>
+        </div>
+
+        <!-- 4. Results View -->
+        <div id="resultsView" class="hidden">
+            <h2 class="text-xl font-semibold text-center text-white mb-4">Extracted Information</h2>
+            <p class="text-sm text-gray-400 text-center mb-4">Please review and correct any fields before copying.</p>
+            
+            <div class="w-full flex justify-center mb-4">
+                 <img id="snapshot" alt="Captured business card" class="rounded-lg max-h-48 w-auto border-2 border-gray-600"/>
+            </div>
+
+            <form id="resultsForm" class="space-y-4">
+                <div>
+                    <label for="businessName" class="block text-sm font-medium text-gray-300">Business Name</label>
+                    <input type="text" id="businessName" class="w-full mt-1 p-2 bg-gray-700 border border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="industryType" class="block text-sm font-medium text-gray-300">Industry</label>
+                    <input type="text" id="industryType" class="w-full mt-1 p-2 bg-gray-700 border border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="phone" class="block text-sm font-medium text-gray-300">Phone Number</label>
+                    <input type="text" id="phone" class="w-full mt-1 p-2 bg-gray-700 border border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="email" class="block text-sm font-medium text-gray-300">Email Address</label>
+                    <input type="email" id="email" class="w-full mt-1 p-2 bg-gray-700 border border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="website" class="block text-sm font-medium text-gray-300">Website</label>
+                    <input type="text" id="website" class="w-full mt-1 p-2 bg-gray-700 border border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                </div>
+                <div>
+                    <label for="address" class="block text-sm font-medium text-gray-300">Address</label>
+                    <textarea id="address" rows="3" class="w-full mt-1 p-2 bg-gray-700 border border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"></textarea>
+                </div>
+            </form>
+
+            <div class="mt-6 space-y-3">
+                <button id="copyButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg text-lg transition duration-200 shadow-lg">
+                    Copy for Google Sheets (CSV)
+                </button>
+                <button id="resetButton" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200">
+                    Scan Another Card
+                </button>
+            </div>
+        </div>
+        
+        <!-- Textarea for copy helper -->
+        <textarea id="csvHelper"></textarea>
+
+        <!-- Message Box for notifications -->
+        <div id="messageBox" class="fixed top-5 left-1/2 -translate-x-1/2 bg-green-500 text-white py-2 px-5 rounded-lg shadow-lg">
+            Copied to clipboard!
+        </div>
+
+    </div>
+
+    <script type="module">
+        // --- DOM Elements ---
+        const startView = document.getElementById('startView');
+        const startButton = document.getElementById('startButton');
+        const cameraView = document.getElementById('cameraView');
+        const videoFeed = document.getElementById('videoFeed');
+        const captureButton = document.getElementById('captureButton');
+        const canvas = document.getElementById('canvas');
+        const loadingView = document.getElementById('loadingView');
+        const resultsView = document.getElementById('resultsView');
+        const snapshotImg = document.getElementById('snapshot');
+        const copyButton = document.getElementById('copyButton');
+        const resetButton = document.getElementById('resetButton');
+        const csvHelper = document.getElementById('csvHelper');
+        const messageBox = document.getElementById('messageBox');
+
+        // Form fields
+        const fields = {
+            businessName: document.getElementById('businessName'),
+            industryType: document.getElementById('industryType'),
+            phone: document.getElementById('phone'),
+            email: document.getElementById('email'),
+            website: document.getElementById('website'),
+            address: document.getElementById('address'),
+        };
+
+        let videoStream = null;
+
+        // --- Core Functions ---
+
+        /**
+         * 1. Start the camera feed
+         */
+        async function startCamera() {
+            try {
+                // Prefer the rear camera ('environment')
+                const constraints = {
+                    video: {
+                        facingMode: "environment"
+                    },
+                    audio: false
+                };
+                videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+                
+                // If environment camera isn't available, it may fall back to 'user' (front)
+                // We flip the video feed if it's the front camera
+                const settings = videoStream.getVideoTracks()[0].getSettings();
+                if (settings.facingMode === 'user') {
+                    videoFeed.style.transform = 'scaleX(-1)';
+                } else {
+                    videoFeed.style.transform = 'scaleX(1)';
+                }
+
+                videoFeed.srcObject = videoStream;
+                startView.classList.add('hidden');
+                cameraView.classList.remove('hidden');
+            } catch (err) {
+                console.error("Error accessing camera:", err);
+                let message = "Could not access camera.";
+                if (err.name === "NotAllowedError") {
+                    message = "Camera access denied. Please allow camera access in your browser settings.";
+                } else if (err.name === "NotFoundError") {
+                    message = "No camera found on this device.";
+                }
+                showMessage(message, 'error');
+            }
+        }
+
+        /**
+         * 2. Capture an image from the video feed
+         */
+        function captureImage() {
+            // Set canvas size to match video feed
+            canvas.width = videoFeed.videoWidth;
+            canvas.height = videoFeed.videoHeight;
+            
+            // Draw the current video frame onto the canvas
+            const context = canvas.getContext('2d');
+            
+            // Un-flip the image if it was mirrored
+            if (videoFeed.style.transform === 'scaleX(-1)') {
+                context.translate(canvas.width, 0);
+                context.scale(-1, 1);
+            }
+            
+            context.drawImage(videoFeed, 0, 0, canvas.width, canvas.height);
+
+            // Get the image as a Base64 string
+            const imageDataUrl = canvas.toDataURL('image/png');
+            const base64ImageData = imageDataUrl.split(',')[1];
+
+            // Show the captured image in the results
+            snapshotImg.src = imageDataUrl;
+
+            // Stop the camera
+            stopCamera();
+            
+            // Show loader and send for analysis
+            cameraView.classList.add('hidden');
+            loadingView.classList.remove('hidden');
+            
+            extractDataFromImage(base64ImageData);
+        }
+
+        /**
+         * 3. Send image to Gemini API for extraction
+         */
+        async function extractDataFromImage(base64ImageData, retryCount = 0) {
+            const apiKey = ""; // API key is handled by the environment
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+            const prompt = `Analyze this image of a business card. Extract the following information.
+- businessName: The name of the company or business.
+- industryType: A best guess of the industry (e.g., "Technology", "Restaurant", "Legal", "Real Estate").
+- phone: The primary phone number.
+- email: The primary email address.
+- website: The company website.
+- address: The full physical address.
+If a field is not found, return an empty string "" for it.
+`;
+
+            // Define the JSON schema for the expected response
+            const responseSchema = {
+                type: "OBJECT",
+                properties: {
+                    "businessName": { "type": "STRING" },
+                    "industryType": { "type": "STRING" },
+                    "phone": { "type": "STRING" },
+                    "email": { "type": "STRING" },
+                    "website": { "type": "STRING" },
+                    "address": { "type": "STRING" }
+                },
+                required: ["businessName", "industryType", "phone", "email", "website", "address"]
+            };
+
+            const payload = {
+                contents: [
+                    {
+                        parts: [
+                            { text: prompt },
+                            {
+                                inlineData: {
+                                    mimeType: "image/png",
+                                    data: base64ImageData
+                                }
+                            }
+                        ]
+                    }
+                ],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: responseSchema
+                }
+            };
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    // Handle rate limiting (429) with exponential backoff
+                    if (response.status === 429 && retryCount < 3) {
+                        const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        return extractDataFromImage(base64ImageData, retryCount + 1);
+                    }
+                    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                }
+
+                const result = await response.json();
+                
+                if (result.candidates && result.candidates.length > 0) {
+                    const jsonText = result.candidates[0].content.parts[0].text;
+                    const extractedData = JSON.parse(jsonText);
+                    
+                    // Populate the form
+                    fields.businessName.value = extractedData.businessName || '';
+                    fields.industryType.value = extractedData.industryType || '';
+                    fields.phone.value = extractedData.phone || '';
+                    fields.email.value = extractedData.email || '';
+                    fields.website.value = extractedData.website || '';
+                    fields.address.value = extractedData.address || '';
+                    
+                    // Show results
+                    loadingView.classList.add('hidden');
+                    resultsView.classList.remove('hidden');
+
+                } else {
+                    console.error("No valid candidate in API response:", result);
+                    throw new Error("AI could not extract data. The response was empty.");
+                }
+
+            } catch (error) {
+                console.error('Error calling Gemini API:', error);
+                loadingView.classList.add('hidden');
+                startView.classList.remove('hidden');
+                showMessage(`Error: ${error.message}`, 'error');
+            }
+        }
+        
+        /**
+         * 4. Copy data as a CSV row
+         */
+        function copyToCSV() {
+            // Define the headers (optional, but good for Google Sheets)
+            // For simplicity, we'll just copy the values as a single row.
+            // You can paste this into a sheet that already has headers.
+            const headers = ["Business Name", "Industry", "Phone", "Email", "Website", "Address"];
+            
+            // Get values and escape quotes by doubling them
+            const values = [
+                fields.businessName.value,
+                fields.industryType.value,
+                fields.phone.value,
+                fields.email.value,
+                fields.website.value,
+                fields.address.value.replace(/\n/g, ' ') // Replace newlines in address
+            ].map(val => `"${val.replace(/"/g, '""')}"`); // Wrap in quotes and escape
+            
+            const csvRow = values.join(',');
+            
+            // Use the hidden textarea to copy
+            csvHelper.value = csvRow;
+            csvHelper.select();
+            
+            try {
+                document.execCommand('copy');
+                showMessage('Copied to clipboard!', 'success');
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+                showMessage('Failed to copy. Please copy manually.', 'error');
+            }
+            
+            // Unfocus the textarea
+            csvHelper.blur();
+        }
+
+        /**
+         * 5. Reset the app to the start
+         */
+        function resetApp() {
+            // Clear form fields
+            Object.values(fields).forEach(input => input.value = '');
+            snapshotImg.src = '';
+            
+            // Show the start view
+            resultsView.classList.add('hidden');
+            startView.classList.remove('hidden');
+        }
+
+        /**
+         * Stop the camera stream
+         */
+        function stopCamera() {
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+        }
+        
+        /**
+         * Show a temporary message to the user
+         */
+        function showMessage(message, type = 'success') {
+            messageBox.textContent = message;
+            if (type === 'error') {
+                messageBox.classList.remove('bg-green-500');
+                messageBox.classList.add('bg-red-600');
+            } else {
+                messageBox.classList.remove('bg-red-600');
+                messageBox.classList.add('bg-green-500');
+            }
+            
+            messageBox.classList.add('show');
+            setTimeout(() => {
+                messageBox.classList.remove('show');
+            }, 3000);
+        }
+
+        // --- Event Listeners ---
+        startButton.addEventListener('click', startCamera);
+        captureButton.addEventListener('click', captureImage);
+        copyButton.addEventListener('click', copyToCSV);
+        resetButton.addEventListener('click', resetApp);
+        
+    </script>
+</body>
+</html>
