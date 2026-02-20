@@ -1,439 +1,999 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-gray-900">
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Business Card Scanner</title>
-    <!-- Load Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        /* Custom styles for the app */
-        body, html {
-            font-family: 'Inter', sans-serif;
-        }
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CardScan — Instant Business Card Reader</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #111118;
+    --surface2: #16161f;
+    --border: rgba(255,255,255,0.07);
+    --accent: #c8ff00;
+    --accent2: #00e5ff;
+    --text: #f0f0f8;
+    --muted: #6b6b7e;
+    --success: #00e5a0;
+    --error: #ff4d6d;
+    --radius: 16px;
+    --mono: 'DM Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
 
-        /* Styling for the video feed to be responsive */
-        #videoFeed {
-            width: 100%;
-            height: auto;
-            border-radius: 0.5rem;
-            transform: scaleX(-1); /* Mirror mode for selfie cam, remove if 'environment' works */
-        }
-        
-        /* Simple loading spinner */
-        .loader {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #3b82f6;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-        }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
 
-        /* Hidden text area for copy-to-clipboard */
-        #csvHelper {
-            position: absolute;
-            left: -9999px;
-            top: 0;
-            opacity: 0;
-        }
+  body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    position: relative;
+  }
 
-        /* Message box for notifications */
-        #messageBox {
-            transition: opacity 0.3s ease-in-out, transform 0.3s ease-in-out;
-            transform: translateY(-20px);
-            opacity: 0;
-            pointer-events: none;
-        }
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 60% 40% at 20% 10%, rgba(200,255,0,0.06) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 50% at 80% 90%, rgba(0,229,255,0.05) 0%, transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
 
-        #messageBox.show {
-            transform: translateY(0);
-            opacity: 1;
-            pointer-events: auto;
-        }
-    </style>
+  .grain {
+    position: fixed;
+    inset: 0;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 150px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .app {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 520px;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 32px;
+  }
+
+  .logo-mark {
+    width: 36px;
+    height: 36px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .logo-mark svg { width: 20px; height: 20px; }
+
+  .logo-text {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--text);
+  }
+
+  .logo-text span { color: var(--accent); }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    overflow: hidden;
+    box-shadow: 0 40px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+
+  .card-inner { padding: 28px; }
+
+  .view { display: none; }
+  .view.active { display: block; }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 20px;
+  }
+
+  .tag-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(0.8); }
+  }
+
+  h1 {
+    font-size: clamp(26px, 5vw, 36px);
+    font-weight: 800;
+    line-height: 1.1;
+    letter-spacing: -1px;
+    margin-bottom: 12px;
+  }
+
+  h1 em {
+    font-style: normal;
+    color: var(--accent);
+  }
+
+  .subtitle {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.6;
+    margin-bottom: 28px;
+  }
+
+  .upload-zone {
+    border: 2px dashed rgba(255,255,255,0.1);
+    border-radius: var(--radius);
+    padding: 40px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+    background: var(--surface2);
+  }
+
+  .upload-zone:hover, .upload-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(200,255,0,0.03);
+  }
+
+  .upload-zone input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+
+  .upload-icon {
+    width: 48px;
+    height: 48px;
+    background: rgba(200,255,0,0.1);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+  }
+
+  .upload-icon svg { width: 24px; height: 24px; color: var(--accent); }
+
+  .upload-title {
+    font-weight: 700;
+    font-size: 15px;
+    margin-bottom: 6px;
+  }
+
+  .upload-hint {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 20px 0;
+  }
+
+  .divider-line {
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .divider-text {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 14px 24px;
+    border: none;
+    border-radius: 12px;
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: -0.2px;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: #0a0a0f;
+  }
+
+  .btn-primary:hover { background: #d4ff26; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(200,255,0,0.25); }
+  .btn-primary:active { transform: translateY(0); }
+
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  .btn-ghost:hover { border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.03); }
+
+  .btn-accent2 {
+    background: transparent;
+    border: 1px solid var(--accent2);
+    color: var(--accent2);
+  }
+
+  .btn-accent2:hover { background: rgba(0,229,255,0.08); }
+
+  .btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+  .camera-container {
+    position: relative;
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: #000;
+    aspect-ratio: 4/3;
+    margin-bottom: 16px;
+  }
+
+  #videoFeed {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .camera-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .scan-frame {
+    position: absolute;
+    inset: 16px;
+    border: 2px solid rgba(200,255,0,0.5);
+    border-radius: 8px;
+    animation: scan-glow 2s ease-in-out infinite alternate;
+  }
+
+  @keyframes scan-glow {
+    from { box-shadow: inset 0 0 20px rgba(200,255,0,0.05), 0 0 0 rgba(200,255,0,0); }
+    to { box-shadow: inset 0 0 30px rgba(200,255,0,0.12), 0 0 20px rgba(200,255,0,0.1); }
+  }
+
+  .scan-line {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: scan-move 2.5s linear infinite;
+    top: 16px;
+  }
+
+  @keyframes scan-move {
+    0% { top: 16px; opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { top: calc(100% - 18px); opacity: 0; }
+  }
+
+  .corner { position: absolute; width: 16px; height: 16px; }
+  .corner-tl { top: 16px; left: 16px; border-top: 3px solid var(--accent); border-left: 3px solid var(--accent); border-radius: 2px 0 0 0; }
+  .corner-tr { top: 16px; right: 16px; border-top: 3px solid var(--accent); border-right: 3px solid var(--accent); border-radius: 0 2px 0 0; }
+  .corner-bl { bottom: 16px; left: 16px; border-bottom: 3px solid var(--accent); border-left: 3px solid var(--accent); border-radius: 0 0 0 2px; }
+  .corner-br { bottom: 16px; right: 16px; border-bottom: 3px solid var(--accent); border-right: 3px solid var(--accent); border-radius: 0 0 2px 0; }
+
+  .progress-bar {
+    height: 3px;
+    background: var(--surface2);
+    border-radius: 99px;
+    overflow: hidden;
+    margin-bottom: 8px;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 99px;
+    transition: width 0.3s ease;
+    width: 0%;
+  }
+
+  .progress-label {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+
+  .snapshot-wrap {
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: #000;
+    margin-bottom: 20px;
+    max-height: 160px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #snapshot {
+    width: 100%;
+    height: 160px;
+    object-fit: cover;
+    display: block;
+  }
+
+  .fields-grid {
+    display: grid;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .field-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .field.full { grid-column: 1 / -1; }
+
+  label {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  label svg { width: 12px; height: 12px; opacity: 0.6; }
+
+  input, textarea {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 10px 12px;
+    width: 100%;
+    transition: border-color 0.15s;
+    outline: none;
+    resize: vertical;
+  }
+
+  input:focus, textarea:focus { border-color: rgba(200,255,0,0.4); background: rgba(200,255,0,0.02); }
+
+  textarea { min-height: 72px; }
+
+  .website-preview {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+  }
+
+  .website-link {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent2);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .website-link:hover { text-decoration: underline; }
+  .website-link svg { width: 12px; height: 12px; flex-shrink: 0; }
+
+  .industry-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 99px;
+    background: rgba(0,229,255,0.1);
+    border: 1px solid rgba(0,229,255,0.2);
+    color: var(--accent2);
+    margin-top: 4px;
+  }
+
+  .actions { display: flex; flex-direction: column; gap: 10px; }
+
+  .copy-options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 20px;
+    font-family: var(--mono);
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s;
+    opacity: 0;
+    z-index: 100;
+    white-space: nowrap;
+  }
+
+  .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+  .toast-icon { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .toast.success .toast-icon { background: rgba(0,229,160,0.2); color: var(--success); }
+  .toast.error .toast-icon { background: rgba(255,77,109,0.2); color: var(--error); }
+
+  .confidence-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: var(--surface2);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  .confidence-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+
+  .confidence-value {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .confidence-high { color: var(--success); }
+  .confidence-medium { color: var(--accent); }
+  .confidence-low { color: var(--error); }
+
+  #canvas { display: none; }
+  #fileInput { display: none; }
+
+  .loading-state {
+    text-align: center;
+    padding: 32px 0;
+  }
+
+  .loading-spinner {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 20px;
+    position: relative;
+  }
+
+  .loading-spinner::before, .loading-spinner::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    border: 2px solid transparent;
+  }
+
+  .loading-spinner::before {
+    inset: 0;
+    border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+
+  .loading-spinner::after {
+    inset: 6px;
+    border-top-color: var(--accent2);
+    animation: spin 1.2s linear infinite reverse;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-title {
+    font-weight: 700;
+    font-size: 18px;
+    margin-bottom: 6px;
+  }
+
+  .loading-subtitle {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .ocr-status {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    margin-top: 8px;
+    height: 16px;
+  }
+
+  @media (max-width: 480px) {
+    .field-row { grid-template-columns: 1fr; }
+    .copy-options { grid-template-columns: 1fr; }
+    .card-inner { padding: 20px; }
+  }
+</style>
 </head>
-<body class="h-full flex items-center justify-center bg-gray-900 text-gray-100 p-4">
+<body>
+<div class="grain"></div>
+<div class="app">
+  <div class="logo">
+    <div class="logo-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="color:#0a0a0f">
+        <rect x="2" y="5" width="20" height="14" rx="2"/>
+        <line x1="2" y1="10" x2="22" y2="10"/>
+      </svg>
+    </div>
+    <div class="logo-text">Card<span>Scan</span></div>
+  </div>
 
-    <div class="w-full max-w-lg mx-auto bg-gray-800 rounded-2xl shadow-2xl p-6 md:p-8">
-        <h1 class="text-2xl md:text-3xl font-bold text-center text-white mb-6">AI Business Card Scanner</h1>
+  <div class="card">
+    <div class="card-inner">
 
-        <!-- 1. Start View -->
-        <div id="startView" class="text-center">
-            <p class="mb-6 text-gray-300">Press the button below to start your camera and scan a business card.</p>
-            <button id="startButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-200 shadow-lg">
-                Start Camera
-            </button>
+      <!-- START VIEW -->
+      <div id="startView" class="view active">
+        <h1>Scan any<br/><em>business card</em><br/>instantly</h1>
+        <p class="subtitle">Local OCR + smart extraction. No cloud, no API keys, works offline after load.</p>
+
+        <div class="upload-zone" id="uploadZone">
+          <input type="file" id="fileInput" accept="image/*" capture="environment"/>
+          <div class="upload-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+          </div>
+          <div class="upload-title">Drop image or click to upload</div>
+          <div class="upload-hint">PNG, JPG, WEBP · Any resolution</div>
         </div>
 
-        <!-- 2. Camera View -->
-        <div id="cameraView" class="hidden text-center">
-            <video id="videoFeed" playsinline autoplay muted class="mb-4 bg-gray-700"></video>
-            <button id="captureButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-200 shadow-lg">
-                Capture Card
-            </button>
-            <p class="text-sm text-gray-400 mt-3">Ensure good lighting and hold steady.</p>
-        </div>
-        
-        <!-- Hidden Canvas for capturing image -->
-        <canvas id="canvas" class="hidden"></canvas>
-
-        <!-- 3. Loading View -->
-        <div id="loadingView" class="hidden text-center py-12">
-            <div class="loader mx-auto"></div>
-            <p class="text-lg text-gray-300 mt-4">Analyzing Business Card...</p>
-            <p class="text-sm text-gray-400">This may take a moment.</p>
+        <div class="divider">
+          <div class="divider-line"></div>
+          <div class="divider-text">or</div>
+          <div class="divider-line"></div>
         </div>
 
-        <!-- 4. Results View -->
-        <div id="resultsView" class="hidden">
-            <h2 class="text-xl font-semibold text-center text-white mb-4">Extracted Information</h2>
-            <p class="text-sm text-gray-400 text-center mb-4">Please review and correct any fields before copying.</p>
-            
-            <div class="w-full flex justify-center mb-4">
-                 <img id="snapshot" alt="Captured business card" class="rounded-lg max-h-48 w-auto border-2 border-gray-600"/>
+        <button class="btn btn-primary" id="startCameraBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+          Use Camera
+        </button>
+      </div>
+
+      <!-- CAMERA VIEW -->
+      <div id="cameraView" class="view">
+        <div class="tag"><div class="tag-dot"></div> Camera active</div>
+        <div class="camera-container">
+          <video id="videoFeed" playsinline autoplay muted></video>
+          <div class="camera-overlay">
+            <div class="scan-frame"></div>
+            <div class="scan-line"></div>
+            <div class="corner corner-tl"></div>
+            <div class="corner corner-tr"></div>
+            <div class="corner corner-bl"></div>
+            <div class="corner corner-br"></div>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="captureBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v3m0 16v3M1 12h3m16 0h3"/>
+          </svg>
+          Capture Card
+        </button>
+        <div style="margin-top:10px">
+          <button class="btn btn-ghost" id="cancelCameraBtn" style="padding:10px">
+            Cancel
+          </button>
+        </div>
+      </div>
+
+      <!-- LOADING VIEW -->
+      <div id="loadingView" class="view">
+        <div class="loading-state">
+          <div class="loading-spinner"></div>
+          <div class="loading-title">Reading Card…</div>
+          <div class="loading-subtitle">Local OCR processing</div>
+          <div class="progress-bar" style="margin-top:20px">
+            <div class="progress-fill" id="progressFill"></div>
+          </div>
+          <div class="ocr-status" id="ocrStatus">Initializing…</div>
+        </div>
+      </div>
+
+      <!-- RESULTS VIEW -->
+      <div id="resultsView" class="view">
+        <div class="tag"><div class="tag-dot" style="background:var(--success)"></div> Extraction complete</div>
+
+        <div class="snapshot-wrap">
+          <img id="snapshot" alt="Captured card"/>
+        </div>
+
+        <div class="confidence-row" id="confidenceRow">
+          <span class="confidence-label">Extraction confidence</span>
+          <span class="confidence-value" id="confidenceVal">—</span>
+        </div>
+
+        <div class="fields-grid">
+          <div class="field-row">
+            <div class="field">
+              <label>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+                Business
+              </label>
+              <input type="text" id="fBusinessName" placeholder="Company name"/>
             </div>
-
-            <form id="resultsForm" class="space-y-4">
-                <div>
-                    <label for="businessName" class="block text-sm font-medium text-gray-300">Business Name</label>
-                    <input type="text" id="businessName" class="w-full mt-1 p-2 bg-gray-700 border border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                </div>
-                <div>
-                    <label for="industryType" class="block text-sm font-medium text-gray-300">Industry</label>
-                    <input type="text" id="industryType" class="w-full mt-1 p-2 bg-gray-700 border border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                </div>
-                <div>
-                    <label for="phone" class="block text-sm font-medium text-gray-300">Phone Number</label>
-                    <input type="text" id="phone" class="w-full mt-1 p-2 bg-gray-700 border border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                </div>
-                <div>
-                    <label for="email" class="block text-sm font-medium text-gray-300">Email Address</label>
-                    <input type="email" id="email" class="w-full mt-1 p-2 bg-gray-700 border border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                </div>
-                <div>
-                    <label for="website" class="block text-sm font-medium text-gray-300">Website</label>
-                    <input type="text" id="website" class="w-full mt-1 p-2 bg-gray-700 border border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                </div>
-                <div>
-                    <label for="address" class="block text-sm font-medium text-gray-300">Address</label>
-                    <textarea id="address" rows="3" class="w-full mt-1 p-2 bg-gray-700 border border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"></textarea>
-                </div>
-            </form>
-
-            <div class="mt-6 space-y-3">
-                <button id="copyButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg text-lg transition duration-200 shadow-lg">
-                    Copy for Google Sheets (CSV)
-                </button>
-                <button id="resetButton" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200">
-                    Scan Another Card
-                </button>
+            <div class="field">
+              <label>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                Industry
+              </label>
+              <input type="text" id="fIndustry" placeholder="Sector"/>
             </div>
-        </div>
-        
-        <!-- Textarea for copy helper -->
-        <textarea id="csvHelper"></textarea>
+          </div>
 
-        <!-- Message Box for notifications -->
-        <div id="messageBox" class="fixed top-5 left-1/2 -translate-x-1/2 bg-green-500 text-white py-2 px-5 rounded-lg shadow-lg">
-            Copied to clipboard!
+          <div class="field-row">
+            <div class="field">
+              <label>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 13.5 19.79 19.79 0 0 1 1.61 4.87 2 2 0 0 1 3.59 2.68h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 10a16 16 0 0 0 6 6l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 17.33z"/></svg>
+                Phone
+              </label>
+              <input type="text" id="fPhone" placeholder="Phone number"/>
+            </div>
+            <div class="field">
+              <label>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                Email
+              </label>
+              <input type="email" id="fEmail" placeholder="Email address"/>
+            </div>
+          </div>
+
+          <div class="field full">
+            <label>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              Website
+            </label>
+            <input type="text" id="fWebsite" placeholder="https://..."/>
+            <div class="website-preview" id="websitePreview" style="display:none">
+              <a class="website-link" id="websiteLink" target="_blank" rel="noopener">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                <span id="websiteLinkText"></span>
+              </a>
+            </div>
+          </div>
+
+          <div class="field full">
+            <label>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+              Address
+            </label>
+            <textarea id="fAddress" placeholder="Physical address" rows="3"></textarea>
+          </div>
         </div>
+
+        <div class="actions">
+          <div class="copy-options">
+            <button class="btn btn-primary" id="copyCSVBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Copy CSV
+            </button>
+            <button class="btn btn-accent2" id="copyJSONBtn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              Copy JSON
+            </button>
+          </div>
+          <button class="btn btn-ghost" id="resetBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Scan Another
+          </button>
+        </div>
+      </div>
 
     </div>
+  </div>
+</div>
 
-    <script type="module">
-        // --- DOM Elements ---
-        const startView = document.getElementById('startView');
-        const startButton = document.getElementById('startButton');
-        const cameraView = document.getElementById('cameraView');
-        const videoFeed = document.getElementById('videoFeed');
-        const captureButton = document.getElementById('captureButton');
-        const canvas = document.getElementById('canvas');
-        const loadingView = document.getElementById('loadingView');
-        const resultsView = document.getElementById('resultsView');
-        const snapshotImg = document.getElementById('snapshot');
-        const copyButton = document.getElementById('copyButton');
-        const resetButton = document.getElementById('resetButton');
-        const csvHelper = document.getElementById('csvHelper');
-        const messageBox = document.getElementById('messageBox');
+<canvas id="canvas"></canvas>
 
-        // Form fields
-        const fields = {
-            businessName: document.getElementById('businessName'),
-            industryType: document.getElementById('industryType'),
-            phone: document.getElementById('phone'),
-            email: document.getElementById('email'),
-            website: document.getElementById('website'),
-            address: document.getElementById('address'),
-        };
+<div class="toast" id="toast">
+  <div class="toast-icon" id="toastIcon">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><polyline points="20 6 9 17 4 12"/></svg>
+  </div>
+  <span id="toastMsg"></span>
+</div>
 
-        let videoStream = null;
+<script src="extractor.js"></script>
+<script>
+  const $ = id => document.getElementById(id);
 
-        // --- Core Functions ---
+  const views = { start: $('startView'), camera: $('cameraView'), loading: $('loadingView'), results: $('resultsView') };
+  let stream = null;
 
-        /**
-         * 1. Start the camera feed
-         */
-        async function startCamera() {
-            try {
-                // Prefer the rear camera ('environment')
-                const constraints = {
-                    video: {
-                        facingMode: "environment"
-                    },
-                    audio: false
-                };
-                videoStream = await navigator.mediaDevices.getUserMedia(constraints);
-                
-                // If environment camera isn't available, it may fall back to 'user' (front)
-                // We flip the video feed if it's the front camera
-                const settings = videoStream.getVideoTracks()[0].getSettings();
-                if (settings.facingMode === 'user') {
-                    videoFeed.style.transform = 'scaleX(-1)';
-                } else {
-                    videoFeed.style.transform = 'scaleX(1)';
-                }
+  function showView(name) {
+    Object.values(views).forEach(v => v.classList.remove('active'));
+    views[name].classList.add('active');
+  }
 
-                videoFeed.srcObject = videoStream;
-                startView.classList.add('hidden');
-                cameraView.classList.remove('hidden');
-            } catch (err) {
-                console.error("Error accessing camera:", err);
-                let message = "Could not access camera.";
-                if (err.name === "NotAllowedError") {
-                    message = "Camera access denied. Please allow camera access in your browser settings.";
-                } else if (err.name === "NotFoundError") {
-                    message = "No camera found on this device.";
-                }
-                showMessage(message, 'error');
-            }
+  function toast(msg, type = 'success') {
+    const el = $('toast');
+    $('toastMsg').textContent = msg;
+    el.className = `toast ${type}`;
+    $('toastIcon').innerHTML = type === 'success'
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><polyline points="20 6 9 17 4 12"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+    el.classList.add('show');
+    clearTimeout(el._t);
+    el._t = setTimeout(() => el.classList.remove('show'), 3000);
+  }
+
+  function setProgress(pct, label) {
+    $('progressFill').style.width = pct + '%';
+    $('ocrStatus').textContent = label;
+  }
+
+  async function runOCR(imageDataUrl) {
+    showView('loading');
+    setProgress(5, 'Loading OCR engine…');
+
+    try {
+      const worker = await Tesseract.createWorker('eng', 1, {
+        logger: m => {
+          if (m.status === 'loading tesseract core') setProgress(10, 'Loading core…');
+          else if (m.status === 'loading language traineddata') setProgress(30, 'Loading language data…');
+          else if (m.status === 'initializing api') setProgress(50, 'Initializing…');
+          else if (m.status === 'recognizing text') {
+            const p = Math.round(50 + (m.progress || 0) * 45);
+            setProgress(p, `Recognizing text… ${Math.round((m.progress || 0) * 100)}%`);
+          }
         }
+      });
 
-        /**
-         * 2. Capture an image from the video feed
-         */
-        function captureImage() {
-            // Set canvas size to match video feed
-            canvas.width = videoFeed.videoWidth;
-            canvas.height = videoFeed.videoHeight;
-            
-            // Draw the current video frame onto the canvas
-            const context = canvas.getContext('2d');
-            
-            // Un-flip the image if it was mirrored
-            if (videoFeed.style.transform === 'scaleX(-1)') {
-                context.translate(canvas.width, 0);
-                context.scale(-1, 1);
-            }
-            
-            context.drawImage(videoFeed, 0, 0, canvas.width, canvas.height);
+      const result = await worker.recognize(imageDataUrl);
+      await worker.terminate();
 
-            // Get the image as a Base64 string
-            const imageDataUrl = canvas.toDataURL('image/png');
-            const base64ImageData = imageDataUrl.split(',')[1];
+      setProgress(100, 'Done');
 
-            // Show the captured image in the results
-            snapshotImg.src = imageDataUrl;
+      const rawText = result.data.text;
+      const confidence = result.data.confidence;
 
-            // Stop the camera
-            stopCamera();
-            
-            // Show loader and send for analysis
-            cameraView.classList.add('hidden');
-            loadingView.classList.remove('hidden');
-            
-            extractDataFromImage(base64ImageData);
-        }
+      const extracted = BusinessCardExtractor.parse(rawText);
 
-        /**
-         * 3. Send image to Gemini API for extraction
-         */
-        async function extractDataFromImage(base64ImageData, retryCount = 0) {
-            
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+      populateResults(extracted, imageDataUrl, confidence);
+      showView('results');
 
-            const prompt = `Analyze this image of a business card. Extract the following information.
-- businessName: The name of the company or business.
-- industryType: A best guess of the industry (e.g., "Technology", "Restaurant", "Legal", "Real Estate").
-- phone: The primary phone number.
-- email: The primary email address.
-- website: The company website.
-- address: The full physical address.
-If a field is not found, return an empty string "" for it.
-`;
+    } catch (err) {
+      console.error(err);
+      showView('start');
+      toast('OCR failed: ' + err.message, 'error');
+    }
+  }
 
-            // Define the JSON schema for the expected response
-            const responseSchema = {
-                type: "OBJECT",
-                properties: {
-                    "businessName": { "type": "STRING" },
-                    "industryType": { "type": "STRING" },
-                    "phone": { "type": "STRING" },
-                    "email": { "type": "STRING" },
-                    "website": { "type": "STRING" },
-                    "address": { "type": "STRING" }
-                },
-                required: ["businessName", "industryType", "phone", "email", "website", "address"]
-            };
+  function populateResults(data, imageUrl, confidence) {
+    $('snapshot').src = imageUrl;
+    $('fBusinessName').value = data.businessName || '';
+    $('fIndustry').value = data.industryType || '';
+    $('fPhone').value = data.phone || '';
+    $('fEmail').value = data.email || '';
+    $('fWebsite').value = data.website || '';
+    $('fAddress').value = data.address || '';
 
-            const payload = {
-                contents: [
-                    {
-                        parts: [
-                            { text: prompt },
-                            {
-                                inlineData: {
-                                    mimeType: "image/png",
-                                    data: base64ImageData
-                                }
-                            }
-                        ]
-                    }
-                ],
-                generationConfig: {
-                    responseMimeType: "application/json",
-                    responseSchema: responseSchema
-                }
-            };
+    const pct = Math.round(confidence || 0);
+    const valEl = $('confidenceVal');
+    valEl.textContent = pct + '%';
+    valEl.className = 'confidence-value ' + (pct >= 75 ? 'confidence-high' : pct >= 50 ? 'confidence-medium' : 'confidence-low');
 
-            try {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+    updateWebsiteLink();
+  }
 
-                if (!response.ok) {
-                    // Handle rate limiting (429) with exponential backoff
-                    if (response.status === 429 && retryCount < 3) {
-                        const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                        return extractDataFromImage(base64ImageData, retryCount + 1);
-                    }
-                    throw new Error(`API Error: ${response.status} ${response.statusText}`);
-                }
+  function updateWebsiteLink() {
+    const url = $('fWebsite').value.trim();
+    const preview = $('websitePreview');
+    if (url && url.length > 4) {
+      const href = /^https?:\/\//i.test(url) ? url : 'https://' + url.replace(/^www\./i, 'www.');
+      $('websiteLink').href = href;
+      $('websiteLinkText').textContent = href.replace(/^https?:\/\//i, '');
+      preview.style.display = 'flex';
+    } else {
+      preview.style.display = 'none';
+    }
+  }
 
-                const result = await response.json();
-                
-                if (result.candidates && result.candidates.length > 0) {
-                    const jsonText = result.candidates[0].content.parts[0].text;
-                    const extractedData = JSON.parse(jsonText);
-                    
-                    // Populate the form
-                    fields.businessName.value = extractedData.businessName || '';
-                    fields.industryType.value = extractedData.industryType || '';
-                    fields.phone.value = extractedData.phone || '';
-                    fields.email.value = extractedData.email || '';
-                    fields.website.value = extractedData.website || '';
-                    fields.address.value = extractedData.address || '';
-                    
-                    // Show results
-                    loadingView.classList.add('hidden');
-                    resultsView.classList.remove('hidden');
+  $('fWebsite').addEventListener('input', updateWebsiteLink);
 
-                } else {
-                    console.error("No valid candidate in API response:", result);
-                    throw new Error("AI could not extract data. The response was empty.");
-                }
+  function getFormData() {
+    return {
+      businessName: $('fBusinessName').value,
+      industryType: $('fIndustry').value,
+      phone: $('fPhone').value,
+      email: $('fEmail').value,
+      website: $('fWebsite').value,
+      address: $('fAddress').value.replace(/\n/g, ' '),
+    };
+  }
 
-            } catch (error) {
-                console.error('Error calling Gemini API:', error);
-                loadingView.classList.add('hidden');
-                startView.classList.remove('hidden');
-                showMessage(`Error: ${error.message}`, 'error');
-            }
-        }
-        
-        /**
-         * 4. Copy data as a CSV row
-         */
-        function copyToCSV() {
-            // Define the headers (optional, but good for Google Sheets)
-            // For simplicity, we'll just copy the values as a single row.
-            // You can paste this into a sheet that already has headers.
-            const headers = ["Business Name", "Industry", "Phone", "Email", "Website", "Address"];
-            
-            // Get values and escape quotes by doubling them
-            const values = [
-                fields.businessName.value,
-                fields.industryType.value,
-                fields.phone.value,
-                fields.email.value,
-                fields.website.value,
-                fields.address.value.replace(/\n/g, ' ') // Replace newlines in address
-            ].map(val => `"${val.replace(/"/g, '""')}"`); // Wrap in quotes and escape
-            
-            const csvRow = values.join(',');
-            
-            // Use the hidden textarea to copy
-            csvHelper.value = csvRow;
-            csvHelper.select();
-            
-            try {
-                document.execCommand('copy');
-                showMessage('Copied to clipboard!', 'success');
-            } catch (err) {
-                console.error('Failed to copy text: ', err);
-                showMessage('Failed to copy. Please copy manually.', 'error');
-            }
-            
-            // Unfocus the textarea
-            csvHelper.blur();
-        }
+  $('copyCSVBtn').addEventListener('click', () => {
+    const d = getFormData();
+    const row = [d.businessName, d.industryType, d.phone, d.email, d.website, d.address]
+      .map(v => `"${v.replace(/"/g, '""')}"`)
+      .join(',');
+    copyText(row, 'CSV row copied — paste into Google Sheets');
+  });
 
-        /**
-         * 5. Reset the app to the start
-         */
-        function resetApp() {
-            // Clear form fields
-            Object.values(fields).forEach(input => input.value = '');
-            snapshotImg.src = '';
-            
-            // Show the start view
-            resultsView.classList.add('hidden');
-            startView.classList.remove('hidden');
-        }
+  $('copyJSONBtn').addEventListener('click', () => {
+    copyText(JSON.stringify(getFormData(), null, 2), 'JSON copied to clipboard');
+  });
 
-        /**
-         * Stop the camera stream
-         */
-        function stopCamera() {
-            if (videoStream) {
-                videoStream.getTracks().forEach(track => track.stop());
-                videoStream = null;
-            }
-        }
-        
-        /**
-         * Show a temporary message to the user
-         */
-        function showMessage(message, type = 'success') {
-            messageBox.textContent = message;
-            if (type === 'error') {
-                messageBox.classList.remove('bg-green-500');
-                messageBox.classList.add('bg-red-600');
-            } else {
-                messageBox.classList.remove('bg-red-600');
-                messageBox.classList.add('bg-green-500');
-            }
-            
-            messageBox.classList.add('show');
-            setTimeout(() => {
-                messageBox.classList.remove('show');
-            }, 3000);
-        }
+  function copyText(text, msg) {
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(() => toast(msg)).catch(() => fallbackCopy(text, msg));
+    } else {
+      fallbackCopy(text, msg);
+    }
+  }
 
-        // --- Event Listeners ---
-        startButton.addEventListener('click', startCamera);
-        captureButton.addEventListener('click', captureImage);
-        copyButton.addEventListener('click', copyToCSV);
-        resetButton.addEventListener('click', resetApp);
-        
-    </script>
+  function fallbackCopy(text, msg) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); toast(msg); }
+    catch { toast('Copy failed — please copy manually', 'error'); }
+    document.body.removeChild(ta);
+  }
+
+  $('fileInput').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => runOCR(ev.target.result);
+    reader.readAsDataURL(file);
+  });
+
+  const uploadZone = $('uploadZone');
+  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+  uploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = ev => runOCR(ev.target.result);
+      reader.readAsDataURL(file);
+    }
+  });
+
+  $('startCameraBtn').addEventListener('click', async () => {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+      const video = $('videoFeed');
+      const settings = stream.getVideoTracks()[0].getSettings();
+      video.style.transform = settings.facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+      video.srcObject = stream;
+      showView('camera');
+    } catch (err) {
+      toast(err.name === 'NotAllowedError' ? 'Camera access denied' : 'No camera found', 'error');
+    }
+  });
+
+  $('captureBtn').addEventListener('click', () => {
+    const video = $('videoFeed');
+    const canvas = $('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (video.style.transform === 'scaleX(-1)') {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(video, 0, 0);
+    stopCamera();
+    runOCR(canvas.toDataURL('image/png'));
+  });
+
+  $('cancelCameraBtn').addEventListener('click', () => { stopCamera(); showView('start'); });
+
+  function stopCamera() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  }
+
+  $('resetBtn').addEventListener('click', () => {
+    $('fileInput').value = '';
+    showView('start');
+  });
+
+  if ('serviceWorker' in navigator) {
+    const SW_URL = URL.createObjectURL(new Blob([`
+      self.addEventListener('fetch', e => e.respondWith(
+        caches.match(e.request).then(r => r || fetch(e.request).then(res => {
+          if (!res || res.status !== 200) return res;
+          const clone = res.clone();
+          caches.open('cardscan-v1').then(c => c.put(e.request, clone));
+          return res;
+        }))
+      ));
+    `], { type: 'application/javascript' }));
+    navigator.serviceWorker.register(SW_URL).catch(() => {});
+  }
+</script>
 </body>
 </html>
